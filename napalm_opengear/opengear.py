@@ -5,6 +5,7 @@ import re
 import socket
 from collections import defaultdict
 
+from netmiko import ConnectHandler
 from napalm.base.helpers import textfsm_extractor
 from napalm.base.helpers import mac, ip
 from napalm.base.netmiko_helpers import netmiko_args
@@ -23,6 +24,7 @@ class OpenGearDriver(NetworkDriver):
         self.hostname = hostname
         self.username = username
         self.password = password
+        self.secret = password
         self.timeout = timeout
         self.changed = False
         self.loaded = False
@@ -48,10 +50,14 @@ class OpenGearDriver(NetworkDriver):
 
     def open(self):
         """Open a connection to the device."""
-        self.device = self._netmiko_open(
-            'linux',
-            netmiko_optional_args=self.netmiko_optional_args,
+        self.device = ConnectHandler(device_type='linux',
+                                     host=self.hostname,
+                                     username=self.username,
+                                     password=self.password,
+                                     secret=self.secret,
+                                     **self.netmiko_optional_args
         )
+        self.device.enable()
 
     def close(self):
         self._netmiko_close()
