@@ -5,6 +5,7 @@ import re
 import socket
 from collections import defaultdict
 
+from netmiko import ConnectHandler
 from napalm.base.helpers import textfsm_extractor
 from napalm.base.helpers import mac, ip
 from napalm.base.netmiko_helpers import netmiko_args
@@ -23,6 +24,7 @@ class OpenGearDriver(NetworkDriver):
         self.hostname = hostname
         self.username = username
         self.password = password
+        self.secret = password
         self.timeout = timeout
         self.changed = False
         self.loaded = False
@@ -36,7 +38,7 @@ class OpenGearDriver(NetworkDriver):
         """Wrapper for Netmiko's send_command_timer method.
            We use this because OpenGear prompt is weird.
         """
-        return self.device.send_command_timing(command)
+        return self.device.send_command_timing(command, delay_factor=4)
 
 
     def cli(self, cmd):
@@ -48,10 +50,15 @@ class OpenGearDriver(NetworkDriver):
 
     def open(self):
         """Open a connection to the device."""
-        self.device = self._netmiko_open(
-            'linux',
-            netmiko_optional_args=self.netmiko_optional_args,
+        self.device = ConnectHandler(device_type='linux',
+                                     host=self.hostname,
+                                     username=self.username,
+                                     password=self.password,
+                                     secret=self.secret,
+                                     global_delay_factor=2,
+                                     **self.netmiko_optional_args
         )
+        self.device.enable()
 
     def close(self):
         self._netmiko_close()
