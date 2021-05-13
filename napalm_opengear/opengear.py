@@ -55,6 +55,7 @@ class OpenGearDriver(NetworkDriver):
                                      username=self.username,
                                      password=self.password,
                                      secret=self.secret,
+                                     global_delay_factor=2,
                                      **self.netmiko_optional_args
         )
         self.device.enable()
