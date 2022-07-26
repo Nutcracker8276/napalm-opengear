@@ -58,7 +58,14 @@ class OpenGearDriver(NetworkDriver):
                                      global_delay_factor=2,
                                      **self.netmiko_optional_args
         )
-        self.device.enable()
+        if not self.device.base_prompt:
+            # If Netmiko fails to detect the prompt due to OpenGear not setting
+            # anything before the pound sign, we set the base_prompt attribute
+            # so Netmiko is able to read (either # when the username is root, or
+            # $ for anything else)
+            self.base_prompt = "#" if self.username == "root" else "$"
+        if self.username != "root":
+            self.device.enable()
 
     def close(self):
         self._netmiko_close()
