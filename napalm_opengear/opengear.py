@@ -12,9 +12,22 @@ from napalm.base.netmiko_helpers import netmiko_args
 
 from napalm.base import NetworkDriver
 from napalm.base.exceptions import (
+    CommandErrorException,
     ConnectionException,
     MergeConfigException,
     )
+
+# Each firmware generation understands only one of these. A rejected command's
+# error comes back as ordinary output, so the pattern shows which one worked.
+# Same order as tried in the field: --show-config is untested on legacy firmware.
+CONFIG_COMMANDS = (
+    ('config -g config', re.compile(r'^config\.\S+', re.M)),
+    ('config --show-config', re.compile(r'^(?:Entity|Item names for entity) \S+\s*$', re.M)),
+)
+# The quotes in the sent command stop its echo matching this.
+COMMAND_DONE = '__NAPALM_DONE__'
+# `config --show-config` takes about 90 seconds on an OM2224.
+CONFIG_READ_TIMEOUT = 300
 
 
 class OpenGearDriver(NetworkDriver):
@@ -40,6 +53,29 @@ class OpenGearDriver(NetworkDriver):
         """
         return self.device.send_command_timing(command, delay_factor=4)
 
+    def _send_until_done(self, command):
+        """Send a command and read until it finishes.
+           _send_command stops reading after a few seconds of silence, which
+           could save a partial config as if it were the whole thing.
+           On a terminal `config` can open its interactive shell and wait for
+           input, so the command gets neither a terminal nor any input.
+        """
+        output = self.device.send_command(
+            '{0} </dev/null 2>&1 | cat; echo {1}""{2}'.format(command, COMMAND_DONE[:8], COMMAND_DONE[8:]),
+            expect_string=COMMAND_DONE,
+            strip_prompt=False,
+            read_timeout=CONFIG_READ_TIMEOUT,
+        )
+        return output.partition(COMMAND_DONE)[0]
+
+    def _get_running_config(self):
+        """Return the running config, raising rather than returning an error message."""
+        for command, expected in CONFIG_COMMANDS:
+            output = self._send_until_done(command)
+            if expected.search(output):
+                return output
+        tried = ', '.join(command for command, _ in CONFIG_COMMANDS)
+        raise CommandErrorException('No config command worked on {0}: {1}'.format(self.hostname, tried))
 
     def cli(self, cmd):
         """send some commands via sudo."""
@@ -68,7 +104,10 @@ class OpenGearDriver(NetworkDriver):
             self.device.enable()
 
     def close(self):
-        self._netmiko_close()
+        # Not _netmiko_close: it only disconnects sessions from _netmiko_open.
+        if self.device:
+            self.device.disconnect()
+        self.device = None
 
     def _get_sshkeys(self, username):
         # There's an ;echo because OpenGear don't put a \n at the end of authorized_keys
@@ -160,12 +199,12 @@ class OpenGearDriver(NetworkDriver):
 
         # running comes from /etc/config/config.xml
         if retrieve in ['all', 'running']:
-            config['running'] = self._send_command("config -g config")
+            config['running'] = self._get_running_config()
 
         # candidate comes from /etc/config/config.xml, also.
         # The state is created with `cp` in discard_config()
         if retrieve in ['all', 'candidate']:
-            config['candidate'] = self._send_command("config -g config")
+            config['candidate'] = self._get_running_config()
 
         return config
 
