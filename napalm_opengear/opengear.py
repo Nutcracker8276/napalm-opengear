@@ -46,6 +46,8 @@ class OpenGearDriver(NetworkDriver):
             optional_args = {}
 
         self.netmiko_optional_args = netmiko_args(optional_args)
+        # Nornir passes a secret here too, and open() sets it explicitly.
+        self.secret = self.netmiko_optional_args.pop('secret', None) or password
 
     def _send_command(self, command):
         """Wrapper for Netmiko's send_command_timer method.

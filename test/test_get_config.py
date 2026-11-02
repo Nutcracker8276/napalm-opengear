@@ -80,11 +80,11 @@ def connect():
         except (OSError, EOFError):
             pass  # the client hung up while the shell was still printing
 
-    def open_driver(responses):
+    def open_driver(responses, **extra_args):
         threading.Thread(target=serve, args=(responses,), daemon=True).start()
         driver = OpenGearDriver(
             '127.0.0.1', 'admin', 'pw',
-            optional_args={'port': listener.getsockname()[1], 'ssh_strict': False},
+            optional_args={'port': listener.getsockname()[1], 'ssh_strict': False, **extra_args},
         )
         driver.open()
         state['driver'] = driver
@@ -119,6 +119,15 @@ def test_rejected_commands_raise_instead_of_returning_the_error(connect):
     driver = connect({'config -g config': REJECTED, 'config --show-config': REJECTED})
     with pytest.raises(CommandErrorException):
         driver.get_config(retrieve='running')
+
+
+@pytest.mark.parametrize('secret, expected', [('enable-pw', 'enable-pw'), (None, 'pw'), ('', 'pw')])
+def test_secret_from_nornir_does_not_collide(connect, secret, expected):
+    """Nornir always sets optional_args['secret'], sometimes to nothing."""
+    driver = connect({'config --show-config': CURRENT}, secret=secret)
+    assert driver.secret == expected
+    assert 'secret' not in driver.netmiko_optional_args
+    assert driver.device.secret == expected
 
 
 def test_close_ends_the_ssh_session(connect):
